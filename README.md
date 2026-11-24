@@ -45,18 +45,17 @@ From a local checkout, open **Plugins** > **Add plugin** and choose this directo
 
 Then choose **Fetch chain** under **Settings** > **Web search and fetch** > **Web fetch provider**.
 
-### Raise the web_fetch tool timeout
+### The web_fetch time limit
 
-The default Step timeouts add up to 115 seconds (10 + 30 + 30 + 45). The `web_fetch` tool's default budget is 30 seconds. Raise it to 120 seconds in your profile's `cordis.patch.yml`:
+DSH's `web_fetch` tool stops a call after 30 seconds by default, which is too short for paid Steps that render JavaScript or bypass bot protection. While this plugin runs, it raises that limit to the **Chain Budget**: the sum of the enabled Step timeouts plus 5 seconds. With the defaults, the budget is 135 seconds (10 + 35 + 40 + 45 + 5). Every Step can use its whole timeout, and the Chain still reports its own outcome before the tool stops it.
 
-```yaml
-- id: tool-web
-  name: '@deepseek-ai/dsh-tool-web'
-  config:
-    fetchTimeoutMs: 120000
-```
+How it works: the `tool-web` plugin that owns `web_fetch` sits inside each agent preset, where profile patches cannot reach it. Instead of editing preset declarations, the plugin copies the `web_fetch` definition each new agent sees, changes only `timeoutMs`, and registers the copy in that agent's own scope, which takes precedence over the preset's ([ADR 0003](docs/adr/0003-raise-web-fetch-limit-per-agent.md)). The tool's behavior, schema, and description stay the same, and the model's prompt does not change.
 
-Each Step waits for its own timeout or for the remaining tool-call time, whichever is shorter. When the tool budget runs out, the Chain stops cleanly.
+- It applies to conversations started after the plugin loads, including subagents. Conversations that were already open keep 30 seconds.
+- It applies whichever fetch provider is selected, because the plugin cannot see the selection. Turn it off with `raiseWebFetchTimeout: false`.
+- Switching a blank conversation to another preset copies that preset's `web_fetch` again; a preset without `web_fetch` gets none.
+- Turning the plugin off removes the copies, so `web_fetch` returns to 30 seconds.
+- In the `ptc` preset, a `web_fetch` called from inside `run_code` is also bound by `run_code`'s own limit (120 seconds by default).
 
 ## API keys
 
@@ -84,10 +83,13 @@ Edit these in the plugin's default settings form.
 | Field | Default | Meaning |
 |---|---|---|
 | `steps` | Http, Scrape.do, Scrapfly, Firecrawl, all on | Chain order from top to bottom, with an on/off switch per Step |
+| `raiseWebFetchTimeout` | `true` | Raise the `web_fetch` time limit to the Chain Budget in new conversations |
 | `httpTimeoutMs` | `10000` | Http Step timeout |
-| `scrapedoTimeoutMs` | `30000` | Scrape.do Step timeout |
-| `scrapflyTimeoutMs` | `30000` | Scrapfly Step timeout |
+| `scrapedoTimeoutMs` | `35000` | Scrape.do Step timeout |
+| `scrapflyTimeoutMs` | `40000` | Scrapfly Step timeout |
 | `firecrawlTimeoutMs` | `45000` | Firecrawl Step timeout |
+
+The Step timeouts follow the services' own limits: scrape.do accepts server-side timeouts of 5–120 seconds, Scrapfly needs at least 30 seconds with `render_js` or `asp` and asks clients to wait 5 seconds longer, and Firecrawl defaults to 60 seconds. Raising a Step timeout also raises the Chain Budget and the `web_fetch` limit.
 | `scrapedoRender` | `true` | scrape.do headless browser rendering |
 | `scrapedoSuper` | `true` | scrape.do residential and mobile proxies |
 | `scrapflyRenderJs` | `true` | Scrapfly headless browser rendering |
@@ -98,7 +100,7 @@ Edit these in the plugin's default settings form.
 
 | Step | Request | Body | Target status | Final URL |
 |---|---|---|---|---|
-| Scrape.do | `GET https://api.scrape.do/?token=…&url=…&output=markdown&render=…&super=…&transparentResponse=true` | response body | HTTP status (the target's, through `transparentResponse`) | `Scrape.do-Resolved-Url` header |
+| Scrape.do | `GET https://api.scrape.do/?token=…&url=…&output=markdown&render=…&super=…&transparentResponse=true&timeout=…` | response body | HTTP status (the target's, through `transparentResponse`) | `Scrape.do-Resolved-Url` header |
 | Scrapfly | `GET https://api.scrapfly.io/scrape?key=…&url=…&format=markdown&render_js=…&asp=…&retry=false&timeout=…` | `result.content` | `result.status_code` | `result.url` |
 | Firecrawl | `POST https://api.firecrawl.dev/v2/scrape`, `Authorization: Bearer …`, `{ formats: ["markdown"], onlyMainContent, timeout }` | `data.markdown` | `data.metadata.statusCode` | `data.metadata.url` |
 
@@ -109,7 +111,7 @@ These responses are Step Failures:
 - scrape.do: a non-2xx response without scrape.do's `Scrape.do-Target-Url`/`Scrape.do-Resolved-Url` headers, which is scrape.do's own rejection (401 no credits, 429 concurrency, 502 failed). 404 and 410 stay definitive.
 - Any paid Step that returns raw HTML or binary content instead of Markdown.
 
-Scrapfly's large-object (`clob`/`blob`) responses are not downloaded and count as a Step Failure. Scrapfly's server-side `timeout` is set to the Step timeout minus 5 seconds, kept within Scrapfly's limits.
+Scrapfly's large-object (`clob`/`blob`) responses are not downloaded and count as a Step Failure. Each paid Step asks its service to finish 5 seconds before the Step timeout, kept within that service's limits, so the response has time to arrive.
 
 ## Development
 
@@ -117,7 +119,7 @@ Scrapfly's large-object (`clob`/`blob`) responses are not downloaded and count a
 npm test        # node --test, against fake Http Steps and a fake transport
 ```
 
-The tests use only the Chain provider's public `fetch(request, signal)`. `index.js` imports DSH packages (`@deepseek-ai/dsh-web`, `dsh-web-fetch-http`, `dsh-credentials`, `schemastery`) that resolve from the DSH installation at runtime. To load it outside DSH, symlink `node_modules/@deepseek-ai` to a DSH runtime's `node_modules/@deepseek-ai`.
+The Chain tests use only the Chain provider's public `fetch(request, signal)`; the `web_fetch` limit tests use a fake of the tools registry. `index.js` imports DSH packages (`@deepseek-ai/dsh-web`, `dsh-web-fetch-http`, `dsh-credentials`, `schemastery`) that resolve from the DSH installation at runtime. To load it outside DSH, symlink `node_modules/@deepseek-ai` to a DSH runtime's `node_modules/@deepseek-ai`.
 
 ## Limitations
 

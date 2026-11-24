@@ -8,13 +8,14 @@ import z from '@deepseek-ai/schemastery'
 import { WebError } from '@deepseek-ai/dsh-web'
 import { DEFAULT_USER_AGENT, HttpFetchProvider } from '@deepseek-ai/dsh-web-fetch-http'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { DEFAULT_OPTIONS, DEFAULT_TIMEOUTS, FetchChainProvider, STEP_IDS } from './lib/chain.js'
+import { DEFAULT_OPTIONS, DEFAULT_TIMEOUTS, FetchChainProvider, STEP_IDS, chainBudgetMs } from './lib/chain.js'
+import { raiseWebFetchTimeout } from './lib/web-fetch-timeout.js'
 
 /** Provider id the Web fetch provider menu pins. */
 export const PROVIDER_ID = 'web-fetch-chain'
 
 export const name = 'web-fetch-chain'
-export const inject = ['web']
+export const inject = ['web', 'tools']
 
 /** DSH's own `dsh-web-fetch-http` defaults, except the timeout, which is the Http Step's. */
 const HTTP_LIMITS = { maxResponseBytes: 5_000_000, maxBodyChars: 100_000, maxRedirects: 5, userAgent: DEFAULT_USER_AGENT }
@@ -22,7 +23,7 @@ const HTTP_LIMITS = { maxResponseBytes: 5_000_000, maxBodyChars: 100_000, maxRed
 const DEFAULT_STEPS = STEP_IDS.map(step => ({ step, enabled: true }))
 
 const timeout = (ms, label) => z.natural().min(1_000).max(300_000).step(1_000).default(ms)
-  .description(`${label} Step timeout in milliseconds. A Step never waits past the remaining tool-call time.`)
+  .description(`${label} Step timeout in milliseconds. The web_fetch time limit grows with the sum of the enabled Step timeouts.`)
 
 export const Config = z.object({
   steps: z.array(z.object({
@@ -50,6 +51,8 @@ export const Config = z.object({
     .description('Scrapfly `asp`: anti-bot bypass (costs more credits).'),
   firecrawlOnlyMainContent: z.boolean().default(DEFAULT_OPTIONS.firecrawlOnlyMainContent)
     .description('Firecrawl `onlyMainContent`: drop headers, navigation, and footers.'),
+  raiseWebFetchTimeout: z.boolean().default(true)
+    .description('Raise the web_fetch time limit to the Chain Budget (enabled Step timeouts + 5 s, default 135 s) in conversations started after this plugin loads, whichever fetch provider is selected.'),
 })
 
 /** Picker description shown under the selected provider. */
@@ -60,24 +63,26 @@ const DESCRIPTION = {
 }
 
 export function apply(ctx, config) {
+  const steps = config.steps
+  const timeouts = {
+    http: config.httpTimeoutMs,
+    scrapedo: config.scrapedoTimeoutMs,
+    scrapfly: config.scrapflyTimeoutMs,
+    firecrawl: config.firecrawlTimeoutMs,
+  }
   const http = new HttpFetchProvider({ ...HTTP_LIMITS, timeoutMs: config.httpTimeoutMs })
   const chain = new FetchChainProvider({
     http,
     transport: (input, init) => globalThis.fetch(input, init),
     WebError,
     settings: {
-      steps: config.steps,
+      steps,
       apiKeys: {
         scrapedo: keyResolver(ctx, config.scrapedoApiKeyRef),
         scrapfly: keyResolver(ctx, config.scrapflyApiKeyRef),
         firecrawl: keyResolver(ctx, config.firecrawlApiKeyRef),
       },
-      timeouts: {
-        http: config.httpTimeoutMs,
-        scrapedo: config.scrapedoTimeoutMs,
-        scrapfly: config.scrapflyTimeoutMs,
-        firecrawl: config.firecrawlTimeoutMs,
-      },
+      timeouts,
       options: {
         scrapedoRender: config.scrapedoRender,
         scrapedoSuper: config.scrapedoSuper,
@@ -95,6 +100,14 @@ export function apply(ctx, config) {
     available: () => chain.available(),
     fetch: (request, signal) => chain.fetch(request, signal),
   })
+
+  if (config.raiseWebFetchTimeout) {
+    raiseWebFetchTimeout(ctx, {
+      timeoutMs: chainBudgetMs({ steps, timeouts }),
+      // The same admission condition dsh-tool-web registers web_fetch with.
+      when: ({ modelSelection }) => ctx.web.fetchReady(modelSelection.provider),
+    })
+  }
 }
 
 /**

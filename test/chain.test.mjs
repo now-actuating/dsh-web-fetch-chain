@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { FetchChainProvider } from '../lib/chain.js'
+import { FetchChainProvider, chainBudgetMs } from '../lib/chain.js'
 
 /** A fake Http Step answering with a fixed result or throwing a fixed error. */
 function fakeHttp(outcome) {
@@ -453,19 +453,20 @@ test('Step options reach the backend requests', async () => {
     http: fakeHttp(httpResult({ statusCode: 403 })),
     transport,
     apiKeys: { scrapedo: 'a', scrapfly: 'b', firecrawl: 'c' },
-    timeouts: { scrapfly: 20_000, firecrawl: 45_000 },
+    timeouts: { scrapedo: 3_000, scrapfly: 20_000, firecrawl: 45_000 },
     options: { scrapedoRender: false, scrapedoSuper: false, scrapflyRenderJs: false, scrapflyAsp: false, firecrawlOnlyMainContent: true },
   }).fetch({ url: 'https://example.com/' })
 
   const [sd, sf, fc] = transport.calls
   assert.equal(sd.url.searchParams.get('render'), 'false')
   assert.equal(sd.url.searchParams.get('super'), 'false')
+  assert.equal(sd.url.searchParams.get('timeout'), '5000', 'scrape.do accepts at least 5 s')
   assert.equal(sf.url.searchParams.get('render_js'), 'false')
   assert.equal(sf.url.searchParams.get('asp'), 'false')
   assert.equal(sf.url.searchParams.get('timeout'), '15000')
   const body = JSON.parse(fc.init.body)
   assert.equal(body.onlyMainContent, true)
-  assert.equal(body.timeout, 45_000)
+  assert.equal(body.timeout, 40_000)
 })
 
 test('the Http Step truncation flag and text body pass through with Attribution', async () => {
@@ -548,4 +549,27 @@ test('Scrape.do passes the target status through, and a target 400 is a result, 
     .fetch({ url: 'https://example.com/' })
   assert.equal(result.statusCode, 400)
   assert.equal(result.body.content, 'Scrape.do:# Bad request')
+})
+
+test('the Chain Budget is the enabled Step timeouts plus five seconds', () => {
+  assert.equal(chainBudgetMs({}), 135_000)
+  assert.equal(chainBudgetMs({
+    steps: [{ step: 'http' }, { step: 'scrapedo', enabled: false }, { step: 'firecrawl' }],
+    timeouts: { http: 5_000, firecrawl: 20_000 },
+  }), 30_000)
+})
+
+test('paid Steps ask their backends to finish five seconds before the Step timeout', async () => {
+  const transport = fakeTransport({
+    'api.scrape.do': () => new Response('', { status: 502 }),
+    'api.firecrawl.dev': firecrawlOk('# ok'),
+  })
+  await chain({
+    http: fakeHttp(httpResult({ statusCode: 403 })),
+    transport,
+    apiKeys: { scrapedo: 'a', firecrawl: 'c' },
+  }).fetch({ url: 'https://example.com/' })
+  const [sd, fc] = transport.calls
+  assert.equal(sd.url.searchParams.get('timeout'), '30000')
+  assert.equal(JSON.parse(fc.init.body).timeout, 40_000)
 })
