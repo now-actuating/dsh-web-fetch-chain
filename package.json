@@ -37,7 +37,8 @@
     "firecrawl"
   ],
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\""
+    "test": "node --test \"test/*.test.mjs\"",
+    "verify:dsh": "node scripts/verify-dsh.mjs"
   },
   "repository": {
     "type": "git",
