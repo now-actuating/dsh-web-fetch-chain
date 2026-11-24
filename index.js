@@ -11,11 +11,16 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
 import { DEFAULT_OPTIONS, DEFAULT_TIMEOUTS, FetchChainProvider, STEP_IDS, chainBudgetMs } from './lib/chain.js'
 import { WEB_FETCH, raiseWebFetchTimeout } from './lib/web-fetch-timeout.js'
+import { KEY_REFS } from './lib/settings.js'
+import { createHandlers, registerRoutes } from './lib/management.js'
 
 /** Provider id the Web fetch provider menu pins. */
 export const PROVIDER_ID = 'web-fetch-chain'
 
 export const name = 'web-fetch-chain'
+
+/** The bundle's row id; only this row serves the settings page. */
+export const MANAGED_ROW_ID = 'web-fetch-chain'
 export const inject = ['web', 'tools']
 
 /** DSH's own `dsh-web-fetch-http` defaults, except the timeout, which is the Http Step's. */
@@ -32,12 +37,6 @@ export const Config = z.object({
     enabled: z.boolean().default(true).description('Whether the Chain tries this Step.'),
   })).role('table').default(DEFAULT_STEPS)
     .description('Chain order, top to bottom. Turn a Step off to leave it out; a paid Step without an API key is skipped.'),
-  scrapedoApiKeyRef: z.string().role('credential-ref').default('SCRAPEDO_API_KEY')
-    .description('Credential name holding the scrape.do token (DSH credentials file, or the environment).'),
-  scrapflyApiKeyRef: z.string().role('credential-ref').default('SCRAPFLY_API_KEY')
-    .description('Credential name holding the Scrapfly API key.'),
-  firecrawlApiKeyRef: z.string().role('credential-ref').default('FIRECRAWL_API_KEY')
-    .description('Credential name holding the Firecrawl API key.'),
   httpTimeoutMs: timeout(DEFAULT_TIMEOUTS.http, 'Http'),
   scrapedoTimeoutMs: timeout(DEFAULT_TIMEOUTS.scrapedo, 'Scrape.do'),
   scrapflyTimeoutMs: timeout(DEFAULT_TIMEOUTS.scrapfly, 'Scrapfly'),
@@ -79,9 +78,9 @@ export function apply(ctx, config) {
     settings: {
       steps,
       apiKeys: {
-        scrapedo: keyResolver(ctx, config.scrapedoApiKeyRef),
-        scrapfly: keyResolver(ctx, config.scrapflyApiKeyRef),
-        firecrawl: keyResolver(ctx, config.firecrawlApiKeyRef),
+        scrapedo: keyResolver(ctx, KEY_REFS.scrapedo),
+        scrapfly: keyResolver(ctx, KEY_REFS.scrapfly),
+        firecrawl: keyResolver(ctx, KEY_REFS.firecrawl),
       },
       timeouts,
       options: {
@@ -93,6 +92,20 @@ export function apply(ctx, config) {
       },
     },
   })
+
+  const entry = ctx.fiber?.entry
+  if (entry?.options?.id === MANAGED_ROW_ID) {
+    registerRoutes(ctx, createHandlers({
+      config,
+      editor: () => {
+        const editor = ctx.get('configEditor')
+        return editor === undefined ? undefined : next => editor.edit(entry, () => next)
+      },
+      credentials: () => ctx.get('credentials'),
+      brand: credentialRef,
+      transport: (input, init) => globalThis.fetch(input, init),
+    }))
+  }
 
   ctx.web.registerFetchProvider({
     id: PROVIDER_ID,
@@ -120,10 +133,8 @@ export function apply(ctx, config) {
  * Resolve an API key from DSH credentials once per request, so a saved key reaches the next
  * request without a restart. Without a credentials service, read the launch environment.
  */
-function keyResolver(ctx, ref) {
+function keyResolver(ctx, refName) {
   return async () => {
-    const refName = typeof ref === 'string' ? ref.trim() : ''
-    if (refName === '') return undefined
     const credentials = ctx.get('credentials')
     if (credentials === undefined) return process.env[refName]
     const hit = await credentials.resolve(credentialRef(refName))

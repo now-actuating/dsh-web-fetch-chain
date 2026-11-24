@@ -43,7 +43,7 @@ JS rendering (`render`, `render_js`) and the stronger anti-bot options (scrape.d
 
 From a local checkout, open **Plugins** > **Add plugin** and choose this directory. An agent with `plugin_manager` can also run `install_bundle` with the directory path.
 
-Then choose **Fetch chain** under **Settings** > **Web search and fetch** > **Web fetch provider**.
+Then choose **Fetch chain** under **Settings** > **Web search and fetch** > **Web fetch provider**, and enter API keys on this bundle's [settings page](#settings-page).
 
 ### The web_fetch time limit
 
@@ -52,35 +52,25 @@ DSH's `web_fetch` tool stops a call after 30 seconds by default, which is too sh
 How it works: the `tool-web` plugin that owns `web_fetch` sits inside each agent preset, where profile patches cannot reach it. Instead of editing preset declarations, the plugin copies the `web_fetch` definition each new agent inherits from its preset, changes only `timeoutMs`, and registers the copy in that agent's own scope, which takes precedence over the preset's ([ADR 0003](docs/adr/0003-raise-web-fetch-limit-per-agent.md)). The tool's behavior, schema, and description stay the same, and the model's prompt does not change.
 
 - It applies to conversations started after the plugin loads, including subagents. Conversations that were already open keep 30 seconds.
-- It applies whichever fetch provider is selected, because the plugin cannot see the selection. Turn it off with `raiseWebFetchTimeout: false`.
+- It applies whichever fetch provider is selected, because the plugin cannot see the selection. Turn it off with `raiseWebFetchTimeout` on the settings page.
 - Switching a blank conversation to another preset copies that preset's `web_fetch` again; a preset without `web_fetch` gets none.
 - Turning the plugin off removes the copies, so `web_fetch` goes back to the preset's own limit (30 seconds by default). Saving this plugin's settings restarts it, which does the same for open conversations; the new limit applies to conversations started afterwards.
 - In the `ptc` preset, a `web_fetch` called from inside `run_code` is also bound by `run_code`'s own limit (120 seconds by default).
 
-## API keys
+## Settings page
 
-Keys are read from DSH credentials, not from plugin configuration. The plugin settings hold only the credential **names**:
+Open **Plugins**, choose **dsh-web-fetch-chain**, and use its settings page. It shows one card per Step in Chain order, top to bottom:
 
-| Setting | Default credential name |
-|---|---|
-| `scrapedoApiKeyRef` | `SCRAPEDO_API_KEY` |
-| `scrapflyApiKeyRef` | `SCRAPFLY_API_KEY` |
-| `firecrawlApiKeyRef` | `FIRECRAWL_API_KEY` |
+- **On** switch and **↑ / ↓** buttons to change the order
+- **Timeout** in seconds (1–300)
+- the service's own options, on paid Steps
+- the **API key** field, on paid Steps
 
-You can store a key in any of these places, highest priority first:
+Below the cards are the `raiseWebFetchTimeout` switch and the Chain Budget the current values give.
 
-1. the DSH credentials file, `~/.dsh/.credentials.yaml`
-2. the environment that launches DSH
-3. the project's `.env`
-4. `~/.dsh/.env`
+**Save** writes the ordinary settings to this row's profile config through DSH's config editor. Only values that differ from the defaults are written. Saving restarts the plugin, and the new `web_fetch` limit applies to conversations started afterwards. **Revert** discards unsaved changes.
 
-Keys are looked up on every request, so a newly saved key works without a restart.
-
-## Settings
-
-Edit these in the plugin's default settings form.
-
-| Field | Default | Meaning |
+| Setting | Default | Meaning |
 |---|---|---|
 | `steps` | Http, Scrape.do, Scrapfly, Firecrawl, all on | Chain order from top to bottom, with an on/off switch per Step |
 | `raiseWebFetchTimeout` | `true` | Raise the `web_fetch` time limit to the Chain Budget in new conversations |
@@ -93,6 +83,36 @@ Edit these in the plugin's default settings form.
 | `scrapflyRenderJs` | `true` | Scrapfly headless browser rendering |
 | `scrapflyAsp` | `true` | Scrapfly anti-bot bypass |
 | `firecrawlOnlyMainContent` | `false` | When off, Firecrawl returns the whole page, including navigation and sidebars |
+
+### API keys
+
+Keys live in DSH credentials, never in plugin configuration. The credential names are fixed:
+
+| Step | Credential name |
+|---|---|
+| Scrape.do | `SCRAPEDO_API_KEY` |
+| Scrapfly | `SCRAPFLY_API_KEY` |
+| Firecrawl | `FIRECRAWL_API_KEY` |
+
+On each paid Step's card:
+
+- A configured key shows a green marker, a masked preview, and where it comes from: the DSH credentials file, an environment variable, the project's `.env`, or `~/.dsh/.env`.
+- An enabled Step without a key shows that the Chain skips it.
+- **Save key** stores the typed key in the DSH credentials file, `~/.dsh/.credentials.yaml`, which outranks every other source.
+- **Delete** removes a key stored in that file. Keys from the environment or a `.env` file cannot be deleted here.
+- **Test** runs a **Key Check**: it checks the typed key, or the stored key when the field is empty, without saving it. It uses the service's account lookup, not a scrape, and reports one notification: valid key, or why not.
+
+| Step | Key Check request |
+|---|---|
+| Scrape.do | `GET https://api.scrape.do/info?token=…` |
+| Scrapfly | `GET https://api.scrapfly.io/account?key=…` |
+| Firecrawl | `GET https://api.firecrawl.dev/v2/team/credit-usage`, `Authorization: Bearer …` |
+
+These lookups read usage only. The services' documents do not explicitly promise that they are free.
+
+Keys are looked up on every request, so a newly saved key works without a restart. You can still store keys by hand, highest priority first: the DSH credentials file, the environment that launches DSH, the project's `.env`, then `~/.dsh/.env`.
+
+No page request ever returns a key to the browser.
 
 The Step timeouts follow the services' own limits: scrape.do accepts server-side timeouts of 5–120 seconds, Scrapfly needs at least 30 seconds with `render_js` or `asp` and asks clients to wait 5 seconds longer, and Firecrawl defaults to 60 seconds. Raising a Step timeout also raises the Chain Budget and the `web_fetch` limit.
 
@@ -132,10 +152,10 @@ It writes only inside one temporary directory, which it deletes. It creates no p
 - **Which runtime:** `--runtime <path>/node_modules/@deepseek-ai`, then `DSH_INSTALL_ANCHOR`, then the `dsh` on `PATH`. `--keep` keeps the temporary directory.
 - **Maintenance installs:** the same check is `test/dsh-integration.test.mjs`, part of `npm test`. It runs when `DSH_INSTALL_ANCHOR` is set, which the dsh-plugin-update-flow testbed does for a Type 2 plugin's source tests with the target runtime. So an update that breaks the raise fails the install's unit-test gate. Elsewhere it is skipped; set `VERIFY_DSH=1` to run it from `npm test`.
 
-The Chain tests use only the Chain provider's public `fetch(request, signal)`; the `web_fetch` limit tests use a fake of the tools registry. `index.js` imports DSH packages (`@deepseek-ai/dsh-web`, `dsh-web-fetch-http`, `dsh-credentials`, `schemastery`) that resolve from the DSH installation at runtime. To load it outside DSH, symlink `node_modules/@deepseek-ai` to a DSH runtime's `node_modules/@deepseek-ai`.
+The settings tests drive `lib/management.js` with a fake credential store, config writer, and transport. The Chain tests use only the Chain provider's public `fetch(request, signal)`; the `web_fetch` limit tests use a fake of the tools registry. `index.js` imports DSH packages (`@deepseek-ai/dsh-web`, `dsh-web-fetch-http`, `dsh-credentials`, `schemastery`) that resolve from the DSH installation at runtime. To load it outside DSH, symlink `node_modules/@deepseek-ai` to a DSH runtime's `node_modules/@deepseek-ai`.
 
 ## Limitations
 
-- There is no drag-and-drop order editor. The order is the `steps` table in the default settings form.
+- There is no drag-and-drop order editor; the settings page moves Steps with ↑ / ↓ buttons.
 - A very short page is not treated as a failure, so JS-only pages that Http fetches as an empty shell are returned as they are.
 - Whether a service's Markdown makes relative image URLs absolute depends on that service.

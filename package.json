@@ -1,6 +1,6 @@
 {
   "name": "dsh-web-fetch-chain",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Fallback-chain web fetch provider for DeepSeek Harness: HTTP -> scrape.do -> Scrapfly -> Firecrawl.",
   "license": "MIT",
   "private": true,
@@ -8,6 +8,7 @@
   "main": "index.js",
   "exports": {
     ".": "./index.js",
+    "./client": "./client/client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg",
     "./cordis.patch.yml": "./cordis.patch.yml",
@@ -20,6 +21,7 @@
   "files": [
     "index.js",
     "lib",
+    "client",
     "locale/*.json",
     "icon.svg",
     "cordis.patch.yml",
@@ -56,6 +58,14 @@
     "versioning": {
       "kind": "independent",
       "repository": "https://github.com/now-actuating/dsh-web-fetch-chain.git"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale"
+      ]
     }
   }
 }
