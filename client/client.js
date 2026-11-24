@@ -251,7 +251,7 @@ window.__ModuleLoader__.load({
 .dwfc-banner-err{color:var(--dsw-alias-state-error-primary,#d93025);border-color:var(--dsw-alias-state-error-primary,#d93025);}
 .dwfc-banner span{flex:1;min-width:0;word-break:break-word;}
 .dwfc-x{background:none;border:none;padding:0 4px;cursor:pointer;color:inherit;font-size:16px;line-height:18px;}
-.dwfc-toast{position:fixed;right:20px;bottom:20px;z-index:1000;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,.18);background:var(--dsw-alias-bg-layer-1,#fff);}
+.dwfc-toast{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1000;max-width:min(420px,calc(100vw - 40px));box-shadow:0 8px 32px rgba(0,0,0,.18);background:var(--dsw-alias-bg-layer-1,#fff);}
 .dwfc-empty{padding:16px;text-align:center;color:var(--dsw-alias-label-tertiary,#999);font-size:13px;border:0.5px dashed var(--dsw-alias-border-l2,#d0d0d0);border-radius:12px;}
 `;
 
