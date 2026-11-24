@@ -1,0 +1,6 @@
+# One row registers the "Fetch chain" provider. Select it in Settings > Web search and
+# fetch > Web fetch provider; the default plugin settings form edits this row's config.
+- insert:
+    - id: web-fetch-chain
+      name: dsh-web-fetch-chain
+      config: {}
