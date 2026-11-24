@@ -49,12 +49,12 @@ Then choose **Fetch chain** under **Settings** > **Web search and fetch** > **We
 
 DSH's `web_fetch` tool stops a call after 30 seconds by default, which is too short for paid Steps that render JavaScript or bypass bot protection. While this plugin runs, it raises that limit to the **Chain Budget**: the sum of the enabled Step timeouts plus 5 seconds. With the defaults, the budget is 135 seconds (10 + 35 + 40 + 45 + 5). Every Step can use its whole timeout, and the Chain still reports its own outcome before the tool stops it.
 
-How it works: the `tool-web` plugin that owns `web_fetch` sits inside each agent preset, where profile patches cannot reach it. Instead of editing preset declarations, the plugin copies the `web_fetch` definition each new agent sees, changes only `timeoutMs`, and registers the copy in that agent's own scope, which takes precedence over the preset's ([ADR 0003](docs/adr/0003-raise-web-fetch-limit-per-agent.md)). The tool's behavior, schema, and description stay the same, and the model's prompt does not change.
+How it works: the `tool-web` plugin that owns `web_fetch` sits inside each agent preset, where profile patches cannot reach it. Instead of editing preset declarations, the plugin copies the `web_fetch` definition each new agent inherits from its preset, changes only `timeoutMs`, and registers the copy in that agent's own scope, which takes precedence over the preset's ([ADR 0003](docs/adr/0003-raise-web-fetch-limit-per-agent.md)). The tool's behavior, schema, and description stay the same, and the model's prompt does not change.
 
 - It applies to conversations started after the plugin loads, including subagents. Conversations that were already open keep 30 seconds.
 - It applies whichever fetch provider is selected, because the plugin cannot see the selection. Turn it off with `raiseWebFetchTimeout: false`.
 - Switching a blank conversation to another preset copies that preset's `web_fetch` again; a preset without `web_fetch` gets none.
-- Turning the plugin off removes the copies, so `web_fetch` returns to 30 seconds.
+- Turning the plugin off removes the copies, so `web_fetch` goes back to the preset's own limit (30 seconds by default). Saving this plugin's settings restarts it, which does the same for open conversations; the new limit applies to conversations started afterwards.
 - In the `ptc` preset, a `web_fetch` called from inside `run_code` is also bound by `run_code`'s own limit (120 seconds by default).
 
 ## API keys
@@ -88,13 +88,13 @@ Edit these in the plugin's default settings form.
 | `scrapedoTimeoutMs` | `35000` | Scrape.do Step timeout |
 | `scrapflyTimeoutMs` | `40000` | Scrapfly Step timeout |
 | `firecrawlTimeoutMs` | `45000` | Firecrawl Step timeout |
-
-The Step timeouts follow the services' own limits: scrape.do accepts server-side timeouts of 5–120 seconds, Scrapfly needs at least 30 seconds with `render_js` or `asp` and asks clients to wait 5 seconds longer, and Firecrawl defaults to 60 seconds. Raising a Step timeout also raises the Chain Budget and the `web_fetch` limit.
 | `scrapedoRender` | `true` | scrape.do headless browser rendering |
 | `scrapedoSuper` | `true` | scrape.do residential and mobile proxies |
 | `scrapflyRenderJs` | `true` | Scrapfly headless browser rendering |
 | `scrapflyAsp` | `true` | Scrapfly anti-bot bypass |
 | `firecrawlOnlyMainContent` | `false` | When off, Firecrawl returns the whole page, including navigation and sidebars |
+
+The Step timeouts follow the services' own limits: scrape.do accepts server-side timeouts of 5–120 seconds, Scrapfly needs at least 30 seconds with `render_js` or `asp` and asks clients to wait 5 seconds longer, and Firecrawl defaults to 60 seconds. Raising a Step timeout also raises the Chain Budget and the `web_fetch` limit.
 
 ## How each service is called
 

@@ -8,8 +8,9 @@ import z from '@deepseek-ai/schemastery'
 import { WebError } from '@deepseek-ai/dsh-web'
 import { DEFAULT_USER_AGENT, HttpFetchProvider } from '@deepseek-ai/dsh-web-fetch-http'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
 import { DEFAULT_OPTIONS, DEFAULT_TIMEOUTS, FetchChainProvider, STEP_IDS, chainBudgetMs } from './lib/chain.js'
-import { raiseWebFetchTimeout } from './lib/web-fetch-timeout.js'
+import { WEB_FETCH, raiseWebFetchTimeout } from './lib/web-fetch-timeout.js'
 
 /** Provider id the Web fetch provider menu pins. */
 export const PROVIDER_ID = 'web-fetch-chain'
@@ -106,6 +107,11 @@ export function apply(ctx, config) {
       timeoutMs: chainBudgetMs({ steps, timeouts }),
       // The same admission condition dsh-tool-web registers web_fetch with.
       when: ({ modelSelection }) => ctx.web.fetchReady(modelSelection.provider),
+      // The agent's enclosing scope is its preset revision; viewing it skips the agent's own copy.
+      inherited: (agent) => {
+        const key = scopeOf(agent.ctx)
+        return ctx.tools.get(WEB_FETCH, key === undefined ? undefined : scopeParentOf(key))
+      },
     })
   }
 }

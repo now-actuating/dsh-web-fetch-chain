@@ -14,5 +14,5 @@ The Chain needs more than `web_fetch`'s 30-second default for paid Steps that re
 
 - The copy must repeat `tool-web`'s admission condition (`ctx.web.fetchReady(...)`), because a definition lookup does not return it. If `tool-web` changes that condition, the copy drifts.
 - The limit is raised whichever fetch provider is selected, because the selection is not observable. `raiseWebFetchTimeout` turns it off.
-- Only conversations started after the plugin loads are affected. Preset switches re-copy through `tools/change`.
+- Only conversations started after the plugin loads are affected. The copy is redone only when the definition the agent inherits from its preset changes, such as after a preset switch on a blank conversation. A `web_fetch` that another plugin registered for the agent is left alone.
 - Re-check after DSH updates. The approach relies on scope shadowing and on the timeout policy reading the agent's view, which no document guarantees for this use.

@@ -48,6 +48,7 @@
   "homepage": "https://github.com/now-actuating/dsh-web-fetch-chain#readme",
   "peerDependencies": {
     "@deepseek-ai/dsh-credentials": "0.2.1-rc.2 || 0.2.2-rc.1 || 0.2.2-rc.2",
+    "@deepseek-ai/dsh-scope": "0.2.1-rc.2 || 0.2.2-rc.1 || 0.2.2-rc.2",
     "@deepseek-ai/dsh-web": "0.2.1-rc.2 || 0.2.2-rc.1 || 0.2.2-rc.2",
     "@deepseek-ai/dsh-web-fetch-http": "0.2.1-rc.2 || 0.2.2-rc.1 || 0.2.2-rc.2",
     "@deepseek-ai/schemastery": "~3.19.0"

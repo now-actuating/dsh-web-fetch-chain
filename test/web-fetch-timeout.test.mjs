@@ -48,10 +48,12 @@ function fakeHost() {
     }
     return agent
   }
+  const warnings = []
   const ctx = {
     tools,
     on,
     effect: (fn) => { effects.push(fn()) },
+    logger: { warn: (message) => { warnings.push(message) } },
   }
   return {
     ctx,
@@ -64,7 +66,18 @@ function fakeHost() {
     },
     unload: () => { for (const cleanup of effects) cleanup() },
     when: (agent, name) => own.get(agent)?.get(name)?.when,
+    /** What the agent's preset (parent scope) provides, ignoring the agent's own layer. */
+    inherited: agent => parent.get(agent)?.get('web_fetch'),
+    /** Register a tool in the agent's own layer, as another plugin would. */
+    registerOwn: (agent, definition) => agent.ctx.get('tools').register(definition),
+    /** Remove the agent's own registrations without notifying, as scope teardown does first. */
+    teardown: agent => { own.delete(agent); emit('tools/change') },
+    warnings,
   }
+}
+
+function raise(host, timeoutMs = 135_000) {
+  raiseWebFetchTimeout(host.ctx, { timeoutMs, when, inherited: host.inherited })
 }
 
 function webFetch(timeoutMs = 30_000) {
@@ -75,7 +88,7 @@ const when = () => true
 
 test('a new agent sees web_fetch with the raised timeout and the original behavior', () => {
   const host = fakeHost()
-  raiseWebFetchTimeout(host.ctx, { timeoutMs: 135_000, when })
+  raise(host)
   const base = webFetch()
   const agent = host.makeAgent({ web_fetch: base })
   host.create(agent)
@@ -90,7 +103,7 @@ test('a new agent sees web_fetch with the raised timeout and the original behavi
 
 test('an agent without web_fetch gets nothing', () => {
   const host = fakeHost()
-  raiseWebFetchTimeout(host.ctx, { timeoutMs: 135_000, when })
+  raise(host)
   const agent = host.makeAgent({})
   host.create(agent)
   assert.equal(host.ctx.tools.get('web_fetch', agent), undefined)
@@ -98,7 +111,7 @@ test('an agent without web_fetch gets nothing', () => {
 
 test('a web_fetch that already allows at least as long is left alone', () => {
   const host = fakeHost()
-  raiseWebFetchTimeout(host.ctx, { timeoutMs: 135_000, when })
+  raise(host)
   const base = webFetch(200_000)
   const agent = host.makeAgent({ web_fetch: base })
   host.create(agent)
@@ -107,7 +120,7 @@ test('a web_fetch that already allows at least as long is left alone', () => {
 
 test('switching the preset re-copies the new preset web_fetch, or removes the copy when it has none', () => {
   const host = fakeHost()
-  raiseWebFetchTimeout(host.ctx, { timeoutMs: 135_000, when })
+  raise(host)
   const agent = host.makeAgent({ web_fetch: webFetch() })
   host.create(agent)
 
@@ -126,7 +139,7 @@ test('switching the preset re-copies the new preset web_fetch, or removes the co
 
 test('unloading the plugin restores the preset web_fetch', () => {
   const host = fakeHost()
-  raiseWebFetchTimeout(host.ctx, { timeoutMs: 135_000, when })
+  raise(host)
   const base = webFetch()
   const agent = host.makeAgent({ web_fetch: base })
   host.create(agent)
@@ -139,17 +152,61 @@ test('agents created before the plugin loads are left alone', () => {
   const base = webFetch()
   const agent = host.makeAgent({ web_fetch: base })
   host.create(agent)
-  raiseWebFetchTimeout(host.ctx, { timeoutMs: 135_000, when })
+  raise(host)
   host.switchPreset(agent, { web_fetch: base })
   assert.equal(host.ctx.tools.get('web_fetch', agent), base)
 })
 
 test('a disposed agent is forgotten', () => {
   const host = fakeHost()
-  raiseWebFetchTimeout(host.ctx, { timeoutMs: 135_000, when })
+  raise(host)
   const agent = host.makeAgent({ web_fetch: webFetch() })
   host.create(agent)
   host.dispose(agent)
   host.switchPreset(agent, { web_fetch: webFetch() })
   assert.equal(host.ctx.tools.get('web_fetch', agent).timeoutMs, 30_000)
+})
+
+test('an agent closing does not re-register web_fetch while its scope tears down', () => {
+  const host = fakeHost()
+  raise(host)
+  const base = webFetch()
+  const agent = host.makeAgent({ web_fetch: base })
+  host.create(agent)
+  let registrations = 0
+  const tools = agent.ctx.get('tools')
+  agent.ctx.get = () => ({ register: (...args) => { registrations++; return tools.register(...args) } })
+  host.teardown(agent)
+  host.dispose(agent)
+  assert.equal(registrations, 0)
+})
+
+test('an unrelated tool change leaves the copy in place', () => {
+  const host = fakeHost()
+  raise(host)
+  const agent = host.makeAgent({ web_fetch: webFetch() })
+  host.create(agent)
+  const copy = host.ctx.tools.get('web_fetch', agent)
+  host.registerOwn(agent, { name: 'other_tool', output: {} })
+  assert.equal(host.ctx.tools.get('web_fetch', agent), copy)
+})
+
+test('a web_fetch another plugin registered for the agent is left alone', () => {
+  const host = fakeHost()
+  raise(host)
+  const agent = host.makeAgent({ web_fetch: webFetch() })
+  const theirs = webFetch(20_000)
+  host.registerOwn(agent, theirs)
+  host.create(agent)
+  assert.equal(host.ctx.tools.get('web_fetch', agent), theirs)
+  assert.deepEqual(host.warnings, [])
+})
+
+test('a failing registration is logged and does not fail agent creation', () => {
+  const host = fakeHost()
+  raise(host)
+  const agent = host.makeAgent({ web_fetch: webFetch() })
+  agent.ctx.get = () => ({ register: () => { throw new Error('inactive effect') } })
+  assert.doesNotThrow(() => host.create(agent))
+  assert.match(host.warnings.join('\n'), /inactive effect/)
 })
