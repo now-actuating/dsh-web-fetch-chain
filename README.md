@@ -98,7 +98,7 @@ Edit these in the plugin's default settings form.
 
 | Step | Request | Body | Target status | Final URL |
 |---|---|---|---|---|
-| Scrape.do | `GET https://api.scrape.do/?token=…&url=…&output=markdown&render=…&super=…` | response body | `Scrape.do-Initial-Status-Code` header (a non-redirect value), otherwise the HTTP status | `Scrape.do-Resolved-Url` header |
+| Scrape.do | `GET https://api.scrape.do/?token=…&url=…&output=markdown&render=…&super=…&transparentResponse=true` | response body | HTTP status (the target's, through `transparentResponse`) | `Scrape.do-Resolved-Url` header |
 | Scrapfly | `GET https://api.scrapfly.io/scrape?key=…&url=…&format=markdown&render_js=…&asp=…&retry=false&timeout=…` | `result.content` | `result.status_code` | `result.url` |
 | Firecrawl | `POST https://api.firecrawl.dev/v2/scrape`, `Authorization: Bearer …`, `{ formats: ["markdown"], onlyMainContent, timeout }` | `data.markdown` | `data.metadata.statusCode` | `data.metadata.url` |
 
@@ -106,7 +106,7 @@ These responses are Step Failures:
 
 - Scrapfly: any non-2xx API status, including 401, 402, 403, 422, 429, and 5xx, or `result.success: false`.
 - Firecrawl: any non-2xx API status, including 401, 402, 403, 408, 429, and 5xx, or `success: false`.
-- scrape.do: any non-2xx API status other than 404 and 410.
+- scrape.do: a non-2xx response without scrape.do's `Scrape.do-Target-Url`/`Scrape.do-Resolved-Url` headers, which is scrape.do's own rejection (401 no credits, 429 concurrency, 502 failed). 404 and 410 stay definitive.
 - Any paid Step that returns raw HTML or binary content instead of Markdown.
 
 Scrapfly's large-object (`clob`/`blob`) responses are not downloaded and count as a Step Failure. Scrapfly's server-side `timeout` is set to the Step timeout minus 5 seconds, kept within Scrapfly's limits.

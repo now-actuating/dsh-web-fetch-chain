@@ -59,7 +59,7 @@ function markdownResponse(markdown, { status = 200, headers = {} } = {}) {
 test('a 403 from the Http Step falls back to Scrape.do, which returns its Markdown as text', async () => {
   const transport = fakeTransport({
     'api.scrape.do': () => markdownResponse('# Title\n\nBody', {
-      headers: { 'scrape.do-resolved-url': 'https://example.com/final', 'scrape.do-initial-status-code': '200' },
+      headers: { 'scrape.do-resolved-url': 'https://example.com/final', 'scrape.do-initial-status-code': '301' },
     }),
   })
   const result = await chain({
@@ -80,6 +80,7 @@ test('a 403 from the Http Step falls back to Scrape.do, which returns its Markdo
   assert.equal(call.url.searchParams.get('output'), 'markdown')
   assert.equal(call.url.searchParams.get('render'), 'true')
   assert.equal(call.url.searchParams.get('super'), 'true')
+  assert.equal(call.url.searchParams.get('transparentResponse'), 'true')
 })
 
 function jsonResponse(payload, { status = 200, headers = {} } = {}) {
@@ -240,7 +241,7 @@ function webError(message, code) {
   return Object.assign(new Error(message), { code })
 }
 
-test('Http Step errors for network, content type, size, and redirects fall back to the next Step', async () => {
+test('Http Step Failures for network, content type, size, and redirects fall back to the next Step', async () => {
   const errors = [
     webError('web fetch failed: ECONNRESET', 'WEB_PROVIDER_ERROR'),
     webError('unsupported content type "application/pdf"', 'WEB_UNSUPPORTED_CONTENT_TYPE'),
@@ -314,7 +315,7 @@ test('an ordinary page that merely mentions Cloudflare is not a challenge', asyn
 
 test('a paid API success that reports a blocked target is a Step Failure', async () => {
   const transport = fakeTransport({
-    'api.scrape.do': () => markdownResponse('Forbidden', { headers: { 'scrape.do-initial-status-code': '403' } }),
+    'api.scrape.do': () => markdownResponse('Forbidden', { status: 403, headers: { 'scrape.do-target-url': 'https://example.com/' } }),
     'api.scrapfly.io': scrapflyOk('Too many requests', { status_code: 429 }),
     'api.firecrawl.dev': firecrawlOk('Bad gateway', { statusCode: 502 }),
   })
@@ -496,4 +497,55 @@ test('a failing API key lookup is a Step Failure, not a crash', async () => {
     }).fetch({ url: 'https://example.com/' }),
     /- Scrape\.do: API key lookup failed: store unreadable/,
   )
+})
+
+test('a 404 is definitive even when its page looks like a challenge', async () => {
+  const page = '<html><head><title>Just a moment...</title></head><body>Not here</body></html>'
+  const transport = fakeTransport({})
+  const result = await chain({
+    http: fakeHttp(httpResult({ statusCode: 404, body: { kind: 'html', content: page } })),
+    transport,
+    apiKeys: { scrapedo: 'sd' },
+  }).fetch({ url: 'https://example.com/missing' })
+  assert.equal(result.statusCode, 404)
+  assert.equal(transport.calls.length, 0)
+})
+
+test('raw HTML behind a leading comment is still rejected from a paid Step', async () => {
+  const transport = fakeTransport({
+    'api.firecrawl.dev': firecrawlOk('<!-- generated -->\n<!DOCTYPE html><html><body>raw</body></html>'),
+  })
+  await assert.rejects(
+    chain({ http: fakeHttp(httpResult({ statusCode: 403 })), transport, apiKeys: { firecrawl: 'c' } })
+      .fetch({ url: 'https://example.com/' }),
+    /- Firecrawl: backend returned raw HTML/,
+  )
+})
+
+test('Markdown that only contains inline HTML is kept', async () => {
+  const transport = fakeTransport({ 'api.firecrawl.dev': firecrawlOk('# Title\n\n<br>\n\nText') })
+  const result = await chain({ http: fakeHttp(httpResult({ statusCode: 403 })), transport, apiKeys: { firecrawl: 'c' } })
+    .fetch({ url: 'https://example.com/' })
+  assert.equal(result.body.content, 'Firecrawl:# Title\n\n<br>\n\nText')
+})
+
+test('a stalled API key lookup counts against the Step timeout', async () => {
+  const transport = fakeTransport({ 'api.scrapfly.io': scrapflyOk('# Scrapfly') })
+  const result = await chain({
+    http: fakeHttp(httpResult({ statusCode: 403 })),
+    transport,
+    apiKeys: { scrapedo: () => new Promise(() => {}), scrapfly: 'sf' },
+    timeouts: { scrapedo: 30 },
+  }).fetch({ url: 'https://example.com/' })
+  assert.equal(result.body.content, 'Scrapfly:# Scrapfly')
+})
+
+test('Scrape.do passes the target status through, and a target 400 is a result, not a Step Failure', async () => {
+  const transport = fakeTransport({
+    'api.scrape.do': () => markdownResponse('# Bad request', { status: 400, headers: { 'scrape.do-target-url': 'https://example.com/' } }),
+  })
+  const result = await chain({ http: fakeHttp(httpResult({ statusCode: 403 })), transport, apiKeys: { scrapedo: 'sd' } })
+    .fetch({ url: 'https://example.com/' })
+  assert.equal(result.statusCode, 400)
+  assert.equal(result.body.content, 'Scrape.do:# Bad request')
 })
