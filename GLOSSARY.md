@@ -21,6 +21,10 @@ A Step outcome that triggers Fallback: a network error or timeout, an HTTP 403, 
 A 404 or 410 and a malformed URL are not Step Failures; they are definitive answers.
 _Avoid_: Error (too broad)
 
+**Chain Budget**:
+The total time one fetch request may spend walking the Chain: the sum of the enabled Steps' timeouts plus a fixed margin, so every Step can use its whole timeout and the Chain still reports its own outcome.
+_Avoid_: Tool timeout, deadline
+
 **Skipped Step**:
 A paid Step that is not attempted because its API key is not configured.
 
