@@ -120,14 +120,17 @@ npm test            # node --test, against fake Http Steps and a fake transport
 npm run verify:dsh  # re-check the web_fetch limit raise against the installed DSH
 ```
 
-Run `npm run verify:dsh` after every DSH update; it exits non-zero when a check fails. It boots the `headless` profile twice with a temporary `--patch` overlay that adds a preset holding `tool-web`, this bundle, and a probe. The probe creates a preset-bound conversation, switches presets, and closes it. Nothing is installed, the Sessions it creates are deleted, and model requests go to a closed local port with a fake key. It checks that:
+`npm run verify:dsh` checks the `web_fetch` limit raise against a real DSH runtime; it exits non-zero when a check fails. It boots the shipped `headless` profile twice in a throwaway `DSH_HOME`, with a temporary `--patch` overlay that adds presets holding `tool-web`, a staged copy of this bundle, and a probe. The probe creates a preset-bound conversation, switches presets, and closes it. It checks that:
 
 - `tool-web` still registers `web_fetch` with the admission condition `index.js` copies
 - a new conversation sees the Chain Budget while its preset keeps its own limit
 - preset switches re-copy `web_fetch` or remove the copy, and closing logs no warnings
 - `raiseWebFetchTimeout: false` keeps the preset limit
 
-Pass `--runtime <path>/node_modules/@deepseek-ai` to check another installed runtime, and `--keep` to keep the temporary overlay.
+It writes only inside one temporary directory, which it deletes. It creates no profile, no Session in your `DSH_HOME`, and no link in the source tree. Model and telemetry requests go to a closed local port with a fake key. A run takes about 35 seconds.
+
+- **Which runtime:** `--runtime <path>/node_modules/@deepseek-ai`, then `DSH_INSTALL_ANCHOR`, then the `dsh` on `PATH`. `--keep` keeps the temporary directory.
+- **Maintenance installs:** the same check is `test/dsh-integration.test.mjs`, part of `npm test`. It runs when `DSH_INSTALL_ANCHOR` is set, which the dsh-plugin-update-flow testbed does for a Type 2 plugin's source tests with the target runtime. So an update that breaks the raise fails the install's unit-test gate. Elsewhere it is skipped; set `VERIFY_DSH=1` to run it from `npm test`.
 
 The Chain tests use only the Chain provider's public `fetch(request, signal)`; the `web_fetch` limit tests use a fake of the tools registry. `index.js` imports DSH packages (`@deepseek-ai/dsh-web`, `dsh-web-fetch-http`, `dsh-credentials`, `schemastery`) that resolve from the DSH installation at runtime. To load it outside DSH, symlink `node_modules/@deepseek-ai` to a DSH runtime's `node_modules/@deepseek-ai`.
 
