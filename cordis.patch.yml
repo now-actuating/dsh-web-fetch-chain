@@ -1,5 +1,6 @@
 # One row registers the "Fetch chain" provider. Select it in Settings > Web search and
-# fetch > Web fetch provider; the default plugin settings form edits this row's config.
+# fetch > Web fetch provider. This row also serves the settings page on this bundle's
+# Plugins screen (client/client.js, lib/management.js); keep its config empty here.
 - insert:
     - id: web-fetch-chain
       name: dsh-web-fetch-chain

@@ -28,6 +28,10 @@ _Avoid_: Tool timeout, deadline
 **Skipped Step**:
 A paid Step that is not attempted because its API key is not configured.
 
+**Key Check**:
+Asking a paid Step's backend whether an API key is valid, and how much quota remains, through the backend's account lookup instead of a scrape, so it spends no scrape credits.
+_Avoid_: Test fetch, ping
+
 **Chain Failure**:
 The outcome when every Step in the Chain fails or is skipped; it reports each Step's reason.
 
