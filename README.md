@@ -116,8 +116,18 @@ Scrapfly's large-object (`clob`/`blob`) responses are not downloaded and count a
 ## Development
 
 ```sh
-npm test        # node --test, against fake Http Steps and a fake transport
+npm test            # node --test, against fake Http Steps and a fake transport
+npm run verify:dsh  # re-check the web_fetch limit raise against the installed DSH
 ```
+
+Run `npm run verify:dsh` after every DSH update; it exits non-zero when a check fails. It boots the `headless` profile twice with a temporary `--patch` overlay that adds a preset holding `tool-web`, this bundle, and a probe. The probe creates a preset-bound conversation, switches presets, and closes it. Nothing is installed, the Sessions it creates are deleted, and model requests go to a closed local port with a fake key. It checks that:
+
+- `tool-web` still registers `web_fetch` with the admission condition `index.js` copies
+- a new conversation sees the Chain Budget while its preset keeps its own limit
+- preset switches re-copy `web_fetch` or remove the copy, and closing logs no warnings
+- `raiseWebFetchTimeout: false` keeps the preset limit
+
+Pass `--runtime <path>/node_modules/@deepseek-ai` to check another installed runtime, and `--keep` to keep the temporary overlay.
 
 The Chain tests use only the Chain provider's public `fetch(request, signal)`; the `web_fetch` limit tests use a fake of the tools registry. `index.js` imports DSH packages (`@deepseek-ai/dsh-web`, `dsh-web-fetch-http`, `dsh-credentials`, `schemastery`) that resolve from the DSH installation at runtime. To load it outside DSH, symlink `node_modules/@deepseek-ai` to a DSH runtime's `node_modules/@deepseek-ai`.
 
